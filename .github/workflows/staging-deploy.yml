@@ -1,52 +1,40 @@
 name: Staging Deploy
 
+# Run only when code is pushed to staging branch
 on:
   push:
     branches:
       - staging
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout code
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      # Step 1: Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    # 2. Build application (example for Java/Maven)
-    - name: Build with Maven
-      run: mvn clean package -Denv=staging
-      working-directory: ./backend  # change to your project folder
+      # Step 2: Build Maven project
+      - name: Build Maven project
+        run: |
+          cd finalassignment        # Change to your Maven project folder
+          mvn clean package
 
+      # Step 3: Setup SSH for deployment
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.1
+        with:
+          ssh-private-key: ${{ secrets.STAGING_KEY }}
 
+      # Step 4: Deploy files to staging server
+      - name: Deploy to staging server
+        run: |
+          rsync -avz --delete finalassignment/target/ ${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/var/www/myapp/
 
-    # 3. Deploy to staging server via SCP
-    - name: Deploy to staging
-      uses: appleboy/scp-action@v0.1.1
-      with:
-        host: ${{ secrets.STAGING_HOST }}
-        username: ${{ secrets.STAGING_USER }}
-        key: ${{ secrets.STAGING_SSH_KEY }}
-        port: 22
-        source: "backend/target/*.jar"   # adjust path
-        target: "/home/username/app/"    # staging server path
-
-    # 4. Restart service (optional)
-    - name: Restart service
-      uses: appleboy/ssh-action@v0.1.6
-      with:
-        host: ${{ secrets.STAGING_HOST }}
-        username: ${{ secrets.STAGING_USER }}
-        key: ${{ secrets.STAGING_SSH_KEY }}
-        port: 22
-        script: |
-          sudo systemctl restart my-app.service
-
-    # 5. Send Slack notification
-    - name: Notify Slack
-      uses: rtCamp/action-slack-notify@v2
-      with:
-        webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
-        message: "✅ Staging deployment successful for commit ${{ github.sha }}"
-        status: custom
+      # Step 5: Notify Slack
+      - name: Notify Slack
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data '{"text":"✅ Staging deployment successful!"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
