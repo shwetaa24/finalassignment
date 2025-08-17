@@ -1,4 +1,4 @@
-name: Staging Deploy
+name: Deploy to Staging
 
 on:
   push:
@@ -6,45 +6,39 @@ on:
       - staging
 
 jobs:
-  deploy:
+  build-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout code
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      # Step 1: Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    # 2. Build application (example for Java/Maven)
-    - name: Build with Maven
-      run: mvn clean package -Denv=staging
-      working-directory: ./backend  # change to your project folder
+      # Step 2: Setup Java and Maven
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    # 3. Deploy to staging server via SCP
-    - name: Deploy to staging
-      uses: appleboy/scp-action@v0.1.1
-      with:
-        host: ${{ secrets.STAGING_HOST }}
-        username: ${{ secrets.STAGING_USER }}
-        key: ${{ secrets.STAGING_SSH_KEY }}
-        port: 22
-        source: "backend/target/*.jar"   # adjust path
-        target: "/home/username/app/"    # staging server path
+      # Step 3: Build with Maven
+      - name: Build with Maven
+        run: mvn clean package -Denv=staging
+        working-directory: backend   # <-- set this to folder containing pom.xml
 
-    # 4. Restart service (optional)
-    - name: Restart service
-      uses: appleboy/ssh-action@v0.1.6
-      with:
-        host: ${{ secrets.STAGING_HOST }}
-        username: ${{ secrets.STAGING_USER }}
-        key: ${{ secrets.STAGING_SSH_KEY }}
-        port: 22
-        script: |
-          sudo systemctl restart my-app.service
+      # Step 4: Deploy JAR/WAR to staging server
+      - name: Deploy to Staging
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_SERVER_HOST }}
+          username: ${{ secrets.STAGING_SERVER_USER }}
+          key: ${{ secrets.STAGING_SERVER_SSH_KEY }}
+          source: "backend/target/*.jar"   # <-- include folder if Maven project is in subfolder
+          target: "/home/ubuntu/staging-app/"
 
-    # 5. Send Slack notification
-    - name: Notify Slack
-      uses: rtCamp/action-slack-notify@v2
-      with:
-        webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
-        message: "✅ Staging deployment successful for commit ${{ github.sha }}"
-        status: custom
+      # Step 5: Notify Slack
+      - name: Slack Notification
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MESSAGE: "✅ Maven project deployed to Staging successfully!"
