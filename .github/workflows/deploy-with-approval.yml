@@ -1,0 +1,68 @@
+
+name: Deploy with Manual Approval
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  MAILGUN_DOMAIN: ${{ secrets.MAILGUN_DOMAIN }}
+  MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
+  STAGING_URL: "https://staging.example.com"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Build
+        run: npm run build
+        
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: build/
+
+  request-approval:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: 
+      name: staging
+      url: ${{ env.STAGING_URL }}
+    steps:
+      - name: Notify approvers
+        run: |
+          curl -s --user "api:$MAILGUN_API_KEY" \
+          "https://api.mailgun.net/v3/$MAILGUN_DOMAIN/messages" \
+          -F from='Deployment Bot <deploy@$MAILGUN_DOMAIN>' \
+          -F to='approvers@company.com' \
+          -F subject='[ACTION REQUIRED] Deployment Approval Needed' \
+          -F text='A deployment to staging is pending your approval. Please review at ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+          
+  deploy:
+    needs: request-approval
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts
+          
+      - name: Deploy to staging
+        run: ./scripts/deploy.sh
+        
+      - name: Notify deployment complete
+        run: |
+          curl -s --user "api:$MAILGUN_API_KEY" \
+          "https://api.mailgun.net/v3/$MAILGUN_DOMAIN/messages" \
+          -F from='Deployment Bot <deploy@$MAILGUN_DOMAIN>' \
+          -F to='team@company.com' \
+          -F subject='[SUCCESS] Deployment Completed' \
+          -F text='The deployment to staging has been successfully completed. Visit ${{ env.STAGING_URL }} to verify.'
